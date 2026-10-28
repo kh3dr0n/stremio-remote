@@ -10,6 +10,7 @@ from urllib.parse import quote
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 FIRETV_HOST = os.environ.get("FIRETV_HOST", "")
@@ -59,9 +60,17 @@ async def ensure_connected() -> tuple[bool, str]:
     return False, "offline"
 
 
+app.mount("/static", StaticFiles(directory=STATIC), name="static")
+
+
 @app.get("/")
 async def index():
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return FileResponse(STATIC / "favicon-32.png", media_type="image/png")
 
 
 @app.get("/api/search")

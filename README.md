@@ -1,4 +1,6 @@
-# Stremio Remote
+<p align="center"><img src="app/static/icon.svg" alt="" width="96"></p>
+
+<h1 align="center">Stremio Remote</h1>
 
 Search for a series or movie on your phone or laptop and open it in Stremio on your Fire TV with one tap.
 
@@ -13,7 +15,7 @@ Typing titles with a TV remote is slow. Stremio Remote is a small web page you r
 - Filter results: All / Series / Movies
 - One tap opens the title's page in Stremio on the TV, and wakes the screen from standby
 - Status dot showing whether the TV is reachable
-- Made for phones: no app to install, and it can be added to your home screen
+- Made for phones: no app to install. Add it to your home screen and it opens full screen with its own icon, like an app
 - No accounts needed: search and IMDb scores come from Stremio's own catalog (Cinemeta)
 
 ## How it works
