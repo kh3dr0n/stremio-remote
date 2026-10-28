@@ -3,6 +3,7 @@
 import asyncio
 import os
 import re
+import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -16,13 +17,19 @@ if not FIRETV_HOST:
     raise SystemExit("FIRETV_HOST is not set (example: FIRETV_HOST=192.168.1.50:5555)")
 if ":" not in FIRETV_HOST:
     FIRETV_HOST += ":5555"
+OMDB_API_KEY = os.environ.get("OMDB_API_KEY", "")
 CINEMETA = "https://v3-cinemeta.strem.io/catalog/{type}/top/search={q}.json"
+CINEMETA_META = "https://v3-cinemeta.strem.io/meta/{type}/{id}.json"
+OMDB = "https://www.omdbapi.com/"
+RATINGS_TTL = 24 * 3600
 ADB_TIMEOUT = 10
 STATIC = Path(__file__).parent / "static"
 IMDB_ID = re.compile(r"^tt\d+$")
 
 app = FastAPI(title="Stremio Remote")
 adb_lock = asyncio.Lock()
+ratings_cache: dict[str, tuple[float, dict]] = {}
+ratings_limit = asyncio.Semaphore(8)
 
 
 async def adb(*args: str) -> tuple[int, str]:
@@ -90,6 +97,48 @@ async def search(q: str):
         for m in merged
         if IMDB_ID.match(m.get("id", ""))
     ][:30]
+
+
+async def fetch_ratings(client: httpx.AsyncClient, type_: str, imdb_id: str) -> dict:
+    """IMDb score from Cinemeta, Rotten Tomatoes from OMDb when a key is set."""
+    cached = ratings_cache.get(imdb_id)
+    if cached and time.monotonic() - cached[0] < RATINGS_TTL:
+        return cached[1]
+    result = {"imdb": None, "rt": None}
+    async with ratings_limit:
+        try:
+            r = await client.get(CINEMETA_META.format(type=type_, id=imdb_id))
+            if r.status_code == 200:
+                result["imdb"] = (r.json().get("meta") or {}).get("imdbRating") or None
+        except httpx.HTTPError:
+            pass
+        if OMDB_API_KEY:
+            try:
+                r = await client.get(OMDB, params={"i": imdb_id, "apikey": OMDB_API_KEY})
+                data = r.json() if r.status_code == 200 else {}
+                if data.get("Response") == "True":
+                    for rating in data.get("Ratings", []):
+                        if rating.get("Source") == "Rotten Tomatoes":
+                            result["rt"] = rating.get("Value")
+                    if not result["imdb"] and data.get("imdbRating") not in (None, "N/A"):
+                        result["imdb"] = data["imdbRating"]
+            except (httpx.HTTPError, ValueError):
+                pass
+    ratings_cache[imdb_id] = (time.monotonic(), result)
+    return result
+
+
+@app.get("/api/ratings")
+async def ratings(items: str):
+    """items: comma-separated type:id pairs, e.g. series:tt0903747,movie:tt1160419"""
+    pairs = []
+    for item in items.split(",")[:30]:
+        type_, _, imdb_id = item.partition(":")
+        if type_ in ("series", "movie") and IMDB_ID.match(imdb_id):
+            pairs.append((type_, imdb_id))
+    async with httpx.AsyncClient(timeout=8) as client:
+        results = await asyncio.gather(*(fetch_ratings(client, t, i) for t, i in pairs))
+    return {imdb_id: r for (_, imdb_id), r in zip(pairs, results)}
 
 
 class OpenRequest(BaseModel):

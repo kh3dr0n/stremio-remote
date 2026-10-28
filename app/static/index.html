@@ -46,6 +46,8 @@
   .card .meta { padding: 8px 10px 10px; }
   .card .name { font-weight: 600; font-size: 14px; }
   .card .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .ratings { font-size: 12px; color: var(--text); margin-top: 4px; display: flex; gap: 10px; min-height: 17px; }
+  .ratings .imdb { color: #f5c518; }
   .badge { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 6px; background: #2c2c36; margin-right: 4px; }
   .empty { color: var(--muted); text-align: center; padding: 40px 0; }
   .toast {
@@ -78,6 +80,34 @@
 <script>
   const $ = (id) => document.getElementById(id);
   let timer, seq = 0, lastItems = [], filter = "all";
+  const ratings = {};
+
+  function fillRatings(el, r) {
+    el.textContent = "";
+    if (!r) return;
+    if (r.imdb) {
+      const s = document.createElement("span");
+      s.className = "imdb";
+      s.textContent = "★ " + r.imdb;
+      el.append(s);
+    }
+    if (r.rt) {
+      const s = document.createElement("span");
+      s.textContent = "🍅 " + r.rt;
+      el.append(s);
+    }
+  }
+
+  async function loadRatings(items, mine) {
+    const missing = items.filter((it) => !(it.id in ratings));
+    if (!missing.length) return;
+    try {
+      const qs = missing.map((it) => it.type + ":" + it.id).join(",");
+      Object.assign(ratings, await (await fetch("/api/ratings?items=" + encodeURIComponent(qs))).json());
+    } catch { return; }
+    if (mine !== seq) return;
+    for (const el of document.querySelectorAll(".ratings")) fillRatings(el, ratings[el.dataset.id]);
+  }
 
   function toast(msg, err = false) {
     const t = $("toast");
@@ -121,7 +151,11 @@
       badge.className = "badge";
       badge.textContent = it.type === "series" ? "Series" : "Movie";
       sub.append(badge, it.year);
-      meta.append(name, sub);
+      const rating = document.createElement("div");
+      rating.className = "ratings";
+      rating.dataset.id = it.id;
+      fillRatings(rating, ratings[it.id]);
+      meta.append(name, sub, rating);
       card.append(img, meta);
       card.onclick = () => openOnTv(it);
       grid.append(card);
@@ -136,6 +170,7 @@
       if (mine !== seq) return;
       $("empty").textContent = "No results";
       render(items);
+      loadRatings(items, mine);
     } catch {
       if (mine === seq) toast("Search failed", true);
     }

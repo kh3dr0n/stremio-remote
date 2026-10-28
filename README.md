@@ -9,11 +9,12 @@ Typing titles with a TV remote is slow. Stremio Remote is a small web page you r
 ## Features
 
 - Search as you type, with posters, year and a Series or Movie label
+- IMDb score on every result, plus Rotten Tomatoes when an [OMDb API key](#rotten-tomatoes-scores) is set
 - Filter results: All / Series / Movies
 - One tap opens the title's page in Stremio on the TV, and wakes the screen from standby
 - Status dot showing whether the TV is reachable
 - Made for phones: no app to install, and it can be added to your home screen
-- No accounts or API keys: search uses Stremio's own catalog (Cinemeta)
+- No accounts needed: search and IMDb scores come from Stremio's own catalog (Cinemeta)
 
 ## How it works
 
@@ -55,6 +56,7 @@ services:
       - "8080:8080"
     environment:
       - FIRETV_HOST=192.168.1.50:5555   # your TV's IP
+      - OMDB_API_KEY=                   # optional, for Rotten Tomatoes scores
     volumes:
       - adb-keys:/root/.android
 
@@ -72,6 +74,7 @@ docker compose up -d
 docker run -d --name stremio-remote --restart unless-stopped \
   -p 8080:8080 \
   -e FIRETV_HOST=192.168.1.50:5555 \
+  -e OMDB_API_KEY= \
   -v stremio-remote-adb:/root/.android \
   ghcr.io/kh3dr0n/stremio-remote:latest
 ```
@@ -115,6 +118,16 @@ To use it like an app on your phone, add it to your home screen: **Share → Add
 | Variable | Required | Description |
 |---|---|---|
 | `FIRETV_HOST` | yes | The TV's address, `IP` or `IP:port` (port defaults to `5555`) |
+| `OMDB_API_KEY` | no | [OMDb](https://www.omdbapi.com/apikey.aspx) key, to show Rotten Tomatoes scores |
+
+### Rotten Tomatoes scores
+
+IMDb scores work out of the box. Rotten Tomatoes scores come from [OMDb](https://www.omdbapi.com/), which needs an API key:
+
+1. Request a free key at <https://www.omdbapi.com/apikey.aspx>. It arrives by email, and you need to click the activation link in it.
+2. Set it as `OMDB_API_KEY` and restart the container.
+
+The free key allows 1,000 requests a day. Scores are cached for 24 hours, so that is plenty for personal use. OMDb mostly has Rotten Tomatoes scores for movies, so many series show only the IMDb score.
 
 ## API
 
@@ -122,6 +135,7 @@ To use it like an app on your phone, add it to your home screen: **Share → Add
 |---|---|---|
 | `GET` | `/api/search?q=<title>` | Search series and movies |
 | `POST` | `/api/open` | Body `{"id": "tt0903747", "type": "series"}`, where `type` is `series` or `movie` |
+| `GET` | `/api/ratings?items=series:tt0903747,movie:tt1160419` | IMDb and Rotten Tomatoes scores, up to 30 titles |
 | `GET` | `/api/status` | `{"connected": true, "state": "device", "host": "…"}` |
 
 You can use `/api/open` from Home Assistant, Shortcuts or scripts:

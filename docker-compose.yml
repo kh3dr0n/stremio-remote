@@ -10,6 +10,8 @@ services:
     environment:
       # IP address of your Fire TV / Android TV with ADB debugging enabled
       - FIRETV_HOST=192.168.1.50:5555
+      # Optional: OMDb API key for Rotten Tomatoes scores (https://www.omdbapi.com/apikey.aspx)
+      - OMDB_API_KEY=
     volumes:
       # Keeps the ADB key so the TV only asks "Allow USB debugging?" once
       - adb-keys:/root/.android
