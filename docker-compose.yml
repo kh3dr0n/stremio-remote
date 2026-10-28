@@ -1,0 +1,18 @@
+services:
+  stremio-remote:
+    image: ghcr.io/kh3dr0n/stremio-remote:latest
+    # To build from source instead, replace the line above with:
+    # build: .
+    container_name: stremio-remote
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # IP address of your Fire TV / Android TV with ADB debugging enabled
+      - FIRETV_HOST=192.168.1.50:5555
+    volumes:
+      # Keeps the ADB key so the TV only asks "Allow USB debugging?" once
+      - adb-keys:/root/.android
+
+volumes:
+  adb-keys:

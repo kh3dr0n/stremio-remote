@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#121216">
+<title>Stremio Remote</title>
+<style>
+  :root {
+    --bg: #121216; --surface: #1d1d24; --text: #eceaf2; --muted: #9a97a8;
+    --accent: #8a5cf6; --ok: #34c759; --bad: #ff453a; --warn: #ffb020;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 2; background: var(--bg);
+    padding: 16px 16px 12px; padding-top: max(16px, env(safe-area-inset-top));
+  }
+  .title { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  h1 { font-size: 20px; margin: 0; }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.warn { background: var(--warn); }
+  input {
+    width: 100%; padding: 14px 16px; border-radius: 12px; border: 1px solid #2c2c36;
+    background: var(--surface); color: var(--text); font-size: 17px; outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  .filters { display: flex; gap: 8px; margin-top: 10px; }
+  .filters button {
+    flex: 1; padding: 8px 0; border-radius: 10px; border: 1px solid #2c2c36;
+    background: var(--surface); color: var(--muted); font: inherit; font-size: 14px; cursor: pointer;
+  }
+  .filters button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  main { padding: 4px 16px 32px; max-width: 900px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--surface); border: 0; border-radius: 12px; padding: 0; color: inherit;
+    text-align: left; cursor: pointer; overflow: hidden; font: inherit;
+  }
+  .card:active { transform: scale(0.97); }
+  .card img, .card .noposter { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; display: block; background: #2a2a33; }
+  .card .meta { padding: 8px 10px 10px; }
+  .card .name { font-weight: 600; font-size: 14px; }
+  .card .sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .badge { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 6px; background: #2c2c36; margin-right: 4px; }
+  .empty { color: var(--muted); text-align: center; padding: 40px 0; }
+  .toast {
+    position: fixed; left: 50%; bottom: max(24px, env(safe-area-inset-bottom)); transform: translateX(-50%);
+    background: #2c2c36; padding: 12px 18px; border-radius: 12px; font-size: 15px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100% - 32px);
+  }
+  .toast.show { opacity: 1; }
+  .toast.err { background: #5a1f1c; }
+</style>
+</head>
+<body>
+<header>
+  <div class="title">
+    <h1>Stremio Remote</h1>
+    <div class="status"><span class="dot" id="dot"></span><span id="statusText">Checking TV…</span></div>
+  </div>
+  <input id="q" type="search" placeholder="Search series or movies" autocomplete="off" autofocus>
+  <div class="filters" id="filters">
+    <button data-type="all" class="active">All</button>
+    <button data-type="series">Series</button>
+    <button data-type="movie">Movies</button>
+  </div>
+</header>
+<main>
+  <div class="grid" id="results"></div>
+  <div class="empty" id="empty">Type a title to search</div>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let timer, seq = 0, lastItems = [], filter = "all";
+
+  function toast(msg, err = false) {
+    const t = $("toast");
+    t.textContent = msg;
+    t.className = "toast show" + (err ? " err" : "");
+    clearTimeout(t._h);
+    t._h = setTimeout(() => (t.className = "toast"), 2500);
+  }
+
+  async function checkStatus() {
+    try {
+      const s = await (await fetch("/api/status")).json();
+      const labels = { device: "TV connected", unauthorized: "Accept ADB prompt on TV", offline: "TV offline" };
+      $("dot").className = "dot " + (s.connected ? "ok" : s.state === "unauthorized" ? "warn" : "bad");
+      $("statusText").textContent = labels[s.state] || s.state;
+    } catch {
+      $("dot").className = "dot bad";
+      $("statusText").textContent = "Server unreachable";
+    }
+  }
+
+  function render(all) {
+    lastItems = all;
+    const items = filter === "all" ? all : all.filter((it) => it.type === filter);
+    const grid = $("results");
+    grid.innerHTML = "";
+    $("empty").style.display = items.length ? "none" : "block";
+    for (const it of items) {
+      const card = document.createElement("button");
+      card.className = "card";
+      const img = it.poster ? document.createElement("img") : document.createElement("div");
+      if (it.poster) { img.src = it.poster; img.loading = "lazy"; img.alt = ""; } else img.className = "noposter";
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      const name = document.createElement("div");
+      name.className = "name";
+      name.textContent = it.name;
+      const sub = document.createElement("div");
+      sub.className = "sub";
+      const badge = document.createElement("span");
+      badge.className = "badge";
+      badge.textContent = it.type === "series" ? "Series" : "Movie";
+      sub.append(badge, it.year);
+      meta.append(name, sub);
+      card.append(img, meta);
+      card.onclick = () => openOnTv(it);
+      grid.append(card);
+    }
+  }
+
+  async function search(q) {
+    const mine = ++seq;
+    if (q.trim().length < 2) { render([]); $("empty").textContent = "Type a title to search"; return; }
+    try {
+      const items = await (await fetch("/api/search?q=" + encodeURIComponent(q))).json();
+      if (mine !== seq) return;
+      $("empty").textContent = "No results";
+      render(items);
+    } catch {
+      if (mine === seq) toast("Search failed", true);
+    }
+  }
+
+  async function openOnTv(it) {
+    toast("Opening " + it.name + "…");
+    try {
+      const r = await fetch("/api/open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: it.id, type: it.type }),
+      });
+      if (r.ok) toast("Opened on TV: " + it.name);
+      else toast((await r.json()).detail || "Failed to open", true);
+    } catch {
+      toast("Server unreachable", true);
+    }
+    checkStatus();
+  }
+
+  $("q").addEventListener("input", (e) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => search(e.target.value), 300);
+  });
+  $("filters").addEventListener("click", (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    filter = btn.dataset.type;
+    for (const b of $("filters").children) b.classList.toggle("active", b === btn);
+    render(lastItems);
+  });
+  checkStatus();
+  setInterval(checkStatus, 30000);
+</script>
+</body>
+</html>
